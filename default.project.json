@@ -1,0 +1,37 @@
+{
+	"name": "rbx-wallstick",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"SharedPackages": {
+				"$path": {
+					"optional": "Packages"
+				}
+			},
+			"Wallstick": {
+				"$path": "src/client/Wallstick"
+			}
+		},
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"WallstickServer": {
+				"$path": "src/server"
+			},
+			"ServerPackages": {
+				"$path": {
+					"optional": "ServerPackages"
+				}
+			}
+		},
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"StarterPlayerScripts": {
+				"$className": "StarterPlayerScripts",
+				"WallstickClient": {
+					"$path": "src/client/clientEntry.client.luau"
+				}
+			}
+		}
+	}
+}
