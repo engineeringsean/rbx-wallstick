@@ -19,11 +19,7 @@ function GravityCamera.getUpVector(): Vector3
 	return cameraModuleObject:GetUpVector()
 end
 
-function GravityCamera.getTargetUpVector(): Vector3
-	return cameraModuleObject:GetTargetUpVector()
-end
-
-function GravityCamera.setTargetUpVector(target: Vector3)
+function GravityCamera.setUpVector(target: Vector3)
 	cameraModuleObject:SetTargetUpVector(target)
 end
 
@@ -33,14 +29,6 @@ end
 
 function GravityCamera.setSpinPart(part: BasePart)
 	cameraModuleObject:SetSpinPart(part)
-end
-
-function GravityCamera.getTransitionRate(): number
-	return cameraModuleObject:GetTransitionRate()
-end
-
-function GravityCamera.setTransitionRate(rate: number)
-	cameraModuleObject:SetTransitionRate(rate)
 end
 
 function GravityCamera.getRotationType(): Enum.RotationType

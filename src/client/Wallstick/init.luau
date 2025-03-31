@@ -8,14 +8,10 @@ local SharedPackages = ReplicatedStorage.SharedPackages
 local Trove = require(SharedPackages.Trove)
 
 local GravityCamera = require(script.GravityCamera)
+local RotationSpring = require(script.RotationSpring)
 local CharacterHelper = require(script.CharacterHelper)
 
 local globalRenderTicket = 0
-
-local CAMERA_TRANSITION = {
-	time = 0.2,
-	rate = 0.15,
-}
 
 local CLASS_NAMES_TO_CONVERT = {
 	["Seat"] = { ClassName = "Part" },
@@ -54,11 +50,12 @@ export type Wallstick = typeof(setmetatable(
 		trove: Trove.Trove,
 
 		options: Options,
-		newPartSetAtTimestamp: number,
 		fallStartHeight: number,
 
 		part: BasePart,
 		normal: Vector3,
+
+		cameraUpSpring: RotationSpring.RotationSpring,
 
 		geometry: Folder,
 		cachedCollisionGeometry: { [BasePart]: BasePart },
@@ -77,11 +74,12 @@ function WallstickClass.new(options: Options): Wallstick
 	self.trove = Trove.new()
 
 	self.options = table.clone(options)
-	self.newPartSetAtTimestamp = -1
 	self.fallStartHeight = -1
 
 	self.part = workspace.Terrain
 	self.normal = Vector3.yAxis
+
+	self.cameraUpSpring = RotationSpring.new(1, 3, CFrame.identity, CFrame.identity)
 
 	self.geometry = Instance.new("Folder")
 	self.geometry.Name = "Geometry"
@@ -133,7 +131,7 @@ function WallstickClass.new(options: Options): Wallstick
 		RunService:UnbindFromRenderStep(renderCharacterBindKey)
 
 		GravityCamera.setSpinPart(workspace.Terrain)
-		GravityCamera.setTargetUpVector(Vector3.yAxis)
+		GravityCamera.setUpVector(Vector3.yAxis)
 
 		CharacterHelper.setMyPerformer(self.real.character, nil)
 
@@ -145,10 +143,6 @@ function WallstickClass.new(options: Options): Wallstick
 end
 
 -- Private
-
-local function lerpNumber(a: number, b: number, t: number)
-	return (1 - t) * a + t * b
-end
 
 local function fromToRotation(fromUnit: Vector3, toUnit: Vector3, backupAxis: Vector3)
 	local dot, cross = fromUnit:Dot(toUnit), fromUnit:Cross(toUnit)
@@ -233,18 +227,15 @@ function WallstickClass._updateCollisionGeometry(self: Wallstick)
 	end
 end
 
-function WallstickClass._updateCameraUp(self: Wallstick)
+function WallstickClass._stepRenderBeforeCamera(self: Wallstick, dt: number)
 	if self.options.camera.tilt then
-		local timeSinceLastSet = os.clock() - self.newPartSetAtTimestamp
-		local factor = lerpNumber(CAMERA_TRANSITION.rate, 1, math.min(1, timeSinceLastSet / CAMERA_TRANSITION.time))
+		self.cameraUpSpring:step(dt)
 
-		GravityCamera.setTargetUpVector(self:getNormal(true))
-		GravityCamera.setTransitionRate(factor)
+		local upVector = self.cameraUpSpring:getPosition().YVector
+		local worldUpVector = self.part.CFrame:VectorToWorldSpace(upVector)
+
+		GravityCamera.setUpVector(worldUpVector)
 	end
-end
-
-function WallstickClass._stepRenderBeforeCamera(self: Wallstick, _dt: number)
-	self:_updateCameraUp()
 end
 
 function WallstickClass._stepRenderCharacter(self: Wallstick, _dt: number)
@@ -298,7 +289,18 @@ function WallstickClass.getFallDistance(self: Wallstick)
 end
 
 function WallstickClass.set(self: Wallstick, part: BasePart, normal: Vector3, teleportCF: CFrame?)
-	self.newPartSetAtTimestamp = if self.part ~= part then os.clock() else self.newPartSetAtTimestamp
+	local prevPartCF = self.part.CFrame
+	local worldUpCFrame = prevPartCF:ToWorldSpace(self.cameraUpSpring:getPosition())
+	local worldUpVelocity = prevPartCF:VectorToWorldSpace(self.cameraUpSpring:getVelocity())
+
+	local partCF = part.CFrame
+	local newWorldNormal = partCF:VectorToWorldSpace(normal)
+	local worldGoalUpCFrame = fromToRotation(worldUpCFrame.YVector, newWorldNormal, worldUpCFrame.XVector)
+		* worldUpCFrame
+
+	self.cameraUpSpring:setGoal(partCF:ToObjectSpace(worldGoalUpCFrame))
+	self.cameraUpSpring:setPosition(partCF:ToObjectSpace(worldUpCFrame))
+	self.cameraUpSpring:setVelocity(partCF:VectorToObjectSpace(worldUpVelocity))
 
 	self.part = part
 	self.normal = normal
@@ -306,8 +308,6 @@ function WallstickClass.set(self: Wallstick, part: BasePart, normal: Vector3, te
 	if self.options.camera.spin then
 		GravityCamera.setSpinPart(self.part)
 	end
-
-	self:_updateCameraUp()
 
 	local originCF = self:_getOriginCFrame()
 	local targetCF = originCF * self.part.CFrame:ToObjectSpace(teleportCF or self.real.rootPart.CFrame)
