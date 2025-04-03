@@ -144,12 +144,23 @@ end
 
 -- Private
 
-local function fromToRotation(fromUnit: Vector3, toUnit: Vector3, backupAxis: Vector3)
-	local dot, cross = fromUnit:Dot(toUnit), fromUnit:Cross(toUnit)
+local function fromToRotation(from: Vector3, to: Vector3, backupUnitAxis: Vector3?)
+	local dot = from:Dot(to)
 	if dot < -0.99999 then
-		return CFrame.fromAxisAngle(backupAxis, math.pi)
+		if backupUnitAxis then
+			return CFrame.fromAxisAngle(backupUnitAxis, math.pi)
+		end
+
+		local qv = if math.abs(from.X) > math.abs(from.Z)
+			then Vector3.new(-from.Y, from.X, 0)
+			else Vector3.new(0, -from.Z, from.Y)
+
+		return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, 0)
 	end
-	return CFrame.new(0, 0, 0, cross.X, cross.Y, cross.Z, 1 + dot)
+
+	local qv = from:Cross(to)
+	local qw = math.sqrt(from:Dot(from) * to:Dot(to)) + dot
+	return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, qw)
 end
 
 function WallstickClass._getOriginCFrame(self: Wallstick)

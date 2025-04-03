@@ -3,5 +3,7 @@
 /Packages
 /assets
 
+*.rbxl.lock
+
 sourcemap.json
 .ds_store
