@@ -147,17 +147,10 @@ end
 local function fromToRotation(from: Vector3, to: Vector3, backupUnitAxis: Vector3?)
 	local dot = from:Dot(to)
 	if dot < -0.99999 then
-		if backupUnitAxis then
-			return CFrame.fromAxisAngle(backupUnitAxis, math.pi)
-		end
-
-		local qv = if math.abs(from.X) > math.abs(from.Z)
-			then Vector3.new(-from.Y, from.X, 0)
-			else Vector3.new(0, -from.Z, from.Y)
-
-		return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, 0)
+		return if backupUnitAxis
+			then CFrame.fromAxisAngle(backupUnitAxis, math.pi)
+			else CFrame.fromRotationBetweenVectors(from, to)
 	end
-
 	local qv = from:Cross(to)
 	local qw = math.sqrt(from:Dot(from) * to:Dot(to)) + dot
 	return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, qw)
