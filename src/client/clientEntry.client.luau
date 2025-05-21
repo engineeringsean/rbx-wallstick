@@ -34,10 +34,15 @@ local function onCharacterAdded(character: Model)
 			instances = { character :: Instance },
 		})
 
+		local hipHeight = humanoid.HipHeight
+		if humanoid.RigType == Enum.HumanoidRigType.R6 then
+			hipHeight = 2
+		end
+
 		local hrpCF = hrp.CFrame
 		local result = RaycastHelper.raycast({
 			origin = hrpCF.Position,
-			direction = -(humanoid.HipHeight + hrp.Size.Y / 2 + 0.1) * hrpCF.YVector,
+			direction = -(hipHeight + hrp.Size.Y / 2 + 0.1) * hrpCF.YVector,
 			rayParams = rayParams,
 		})
 
