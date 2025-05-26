@@ -59,6 +59,8 @@ local function onCharacterAdded(character: Model)
 	wallstick:Destroy()
 end
 
+assert(not workspace.StreamingEnabled, "Wallstick does not support streaming enabled.")
+
 if Players.LocalPlayer.Character then
 	onCharacterAdded(Players.LocalPlayer.Character)
 end
