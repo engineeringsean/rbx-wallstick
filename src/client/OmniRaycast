@@ -1,0 +1,116 @@
+-- OmniRaycast.lua
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedPackages = ReplicatedStorage.SharedPackages
+local RaycastHelper = require(SharedPackages.RaycastHelper)
+
+local OmniRaycast = {}
+
+-- Configuration for ray distribution
+export type OmniRaycastConfig = {
+	rayCount: number?, -- Total number of rays to cast (default: 100)
+	radius: number?, -- How far to cast each ray (default: 10)
+	visualize: boolean?, -- Whether to show debug rays (default: false)
+	excludeInstances: {Instance}?, -- Instances to exclude from raycast
+}
+
+-- Helper function to generate points on a sphere using fibonacci distribution
+local function getFibonacciSpherePoints(samples: number): {Vector3}
+	local points = {}
+	local phi = math.pi * (3 - math.sqrt(5)) -- golden angle in radians
+
+	for i = 0, samples - 1 do
+		local y = 1 - (i / (samples - 1)) * 2 -- y goes from 1 to -1
+		local radius = math.sqrt(1 - y * y) -- radius at y
+		local theta = phi * i -- golden angle increment
+
+		local x = math.cos(theta) * radius
+		local z = math.sin(theta) * radius
+
+		table.insert(points, Vector3.new(x, y, z).Unit)
+	end
+
+	return points
+end
+
+-- Cast rays in all directions and return all hits
+function OmniRaycast.sphereCast(origin: Vector3, config: OmniRaycastConfig)
+	local rayCount = config.rayCount or 100
+	local radius = config.radius or 10
+	local visualize = config.visualize or false
+
+	-- Setup raycast parameters
+	local rayParams = RaycastHelper.params({
+		filterType = Enum.RaycastFilterType.Exclude,
+		instances = config.excludeInstances or {},
+	})
+
+	-- Generate evenly distributed directions
+	local directions = getFibonacciSpherePoints(rayCount)
+
+	-- Store all hits
+	local hits = {}
+
+	-- Cast rays in all directions
+	for _, direction in directions do
+		local result = RaycastHelper.raycast({
+			origin = origin,
+			direction = direction * radius,
+			rayParams = rayParams,
+		})
+
+		if result then
+			table.insert(hits, {
+				Position = result.Position,
+				Normal = result.Normal,
+				Distance = (result.Position - origin).Magnitude,
+				Instance = result.Instance,
+				Material = result.Material,
+			})
+
+			-- Visualize the hit if enabled
+			if visualize then
+				local line = Instance.new("Part")
+				line.Anchored = true
+				line.CanCollide = false
+				line.Size = Vector3.new(0.1, 0.1, (result.Position - origin).Magnitude)
+				line.CFrame = CFrame.lookAt(origin, result.Position) * CFrame.new(0, 0, -line.Size.Z/2)
+				line.Color = Color3.new(1, 0, 0) -- Red for hits
+				line.Transparency = 0.5
+				line.Parent = workspace
+				game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+			end
+		elseif visualize then
+			-- Visualize missed rays if enabled
+			local line = Instance.new("Part")
+			line.Anchored = true
+			line.CanCollide = false
+			line.Size = Vector3.new(0.1, 0.1, radius)
+			line.CFrame = CFrame.lookAt(origin, origin + direction * radius) * CFrame.new(0, 0, -radius/2)
+			line.Color = Color3.new(0, 1, 0) -- Green for misses
+			line.Transparency = 0.8
+			line.Parent = workspace
+			game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+		end
+	end
+
+	return hits
+end
+
+-- Find the closest surface in any direction
+function OmniRaycast.findClosestSurface(origin: Vector3, config: OmniRaycastConfig)
+	local hits = OmniRaycast.sphereCast(origin, config)
+
+	local closestHit = nil
+	local closestDistance = math.huge
+
+	for _, hit in hits do
+		if hit.Distance < closestDistance then
+			closestDistance = hit.Distance
+			closestHit = hit
+		end
+	end
+
+	return closestHit
+end
+
+return OmniRaycast

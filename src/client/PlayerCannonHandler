@@ -1,0 +1,54 @@
+-- StarterPlayerScripts/PlayerCannonHandler.client.luau (LocalScript)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("PlayerCannonHandler client script starting...")
+
+-- Wait for the launch event to exist
+local launchEvent = ReplicatedStorage:WaitForChild("CannonLaunchEvent")
+print("Found launch event")
+
+-- Wait for the cannon and its ProximityPrompt
+local cannon = workspace:WaitForChild("PlayerCannon")
+local prompt = cannon:WaitForChild("ProximityPrompt")
+print("Found cannon and prompt")
+
+-- Connect ProximityPrompt to launch request
+prompt.Triggered:Connect(function()
+	print("Client ProximityPrompt triggered, requesting launch")
+	launchEvent:FireServer()
+end)
+
+-- Handle launch response from server
+launchEvent.OnClientEvent:Connect(function(launchVelocity)
+	print("Client received launch velocity:", launchVelocity)
+
+	-- Find the fake character
+	local wallstickFolder = workspace:WaitForChild("Wallstick")
+	local fakeChar = wallstickFolder:FindFirstChild(Players.LocalPlayer.Name)
+
+	if fakeChar then
+		print("Found fake character")
+		local fakeRoot = fakeChar:FindFirstChild("HumanoidRootPart")
+		if fakeRoot then
+			print("Found fake root, applying velocity")
+			-- Apply the launch velocity
+			fakeRoot.AssemblyLinearVelocity = launchVelocity
+			print("Applied velocity")
+		else
+			print("No HumanoidRootPart found in:", fakeChar:GetFullName())
+			-- Print all children
+			for _, child in pairs(fakeChar:GetChildren()) do
+				print("Child:", child.Name, child.ClassName)
+			end
+		end
+	else
+		print("No fake character found in Wallstick folder")
+		-- Print all children of Wallstick folder
+		for _, child in pairs(wallstickFolder:GetChildren()) do
+			print("Wallstick child:", child.Name, child.ClassName)
+		end
+	end
+end)
+
+print("PlayerCannonHandler client script setup complete")

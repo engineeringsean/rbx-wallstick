@@ -156,6 +156,40 @@ local function fromToRotation(from: Vector3, to: Vector3, backupUnitAxis: Vector
 	return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, qw)
 end
 
+local function fromToRotationInterp(from: Vector3, to: Vector3, backupUnitAxis: Vector3?)
+	-- Default alpha to 1 if not provided (immediate rotation)
+	local alpha = 0.000001
+
+	-- Normalize the input vectors
+	from = from.Unit
+	to = to.Unit
+
+	local dot = from:Dot(to)
+	if dot < -0.99999 then
+		if backupUnitAxis then
+			-- For 180-degree rotations, interpolate using axis-angle
+			return CFrame.fromAxisAngle(backupUnitAxis, math.pi * alpha)
+		else
+			return CFrame.fromRotationBetweenVectors(from, to:Lerp(from, 1 - alpha))
+		end
+	end
+
+	-- Calculate the quaternion components
+	local qv = from:Cross(to)
+	local qw = math.sqrt(from:Dot(from) * to:Dot(to)) + dot
+
+	-- If alpha is 1, return immediate rotation
+	if alpha == 1 then
+		return CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, qw)
+	end
+
+	-- For interpolated rotation, we can use slerp
+	-- Create the target rotation
+	local targetRotation = CFrame.new(0, 0, 0, qv.X, qv.Y, qv.Z, qw)
+	-- Interpolate between identity and target rotation
+	return CFrame.identity:Lerp(targetRotation, alpha)
+end
+
 function WallstickClass._getOriginCFrame(self: Wallstick)
 	return self.options.origin * fromToRotation(self.normal, Vector3.yAxis, Vector3.xAxis)
 end
@@ -345,6 +379,54 @@ function WallstickClass.setAndPivot(self: Wallstick, part: BasePart, normal: Vec
 	local floorRootCF = realRootCF * CFrame.new(0, -heightAdjust, 0)
 	local newRotation = fromToRotation(floorRootCF.YVector, worldNormal, floorRootCF.XVector) * floorRootCF.Rotation
 	local teleportCF = CFrame.new(position) * newRotation * CFrame.new(0, heightAdjust, 0)
+
+	return self:set(part, normal, teleportCF)
+end
+
+function WallstickClass:rotateKeepingOrigin(part: BasePart, normal: Vector3)
+	-- Desired up-vector in world space
+	local worldNormal = part.CFrame:VectorToWorldSpace(normal)
+
+	-- Current RootPart CFrame in geometry space
+	local realRootCF = self:_getCalculatedRealRootCFrame()
+
+	-- Δ-rotation that swings current up to target up
+	local alignRotation =
+		fromToRotationInterp(realRootCF.YVector, worldNormal, realRootCF.XVector)
+
+	-- Same world position, new orientation
+	local teleportCF =
+		CFrame.new(realRootCF.Position) * (alignRotation * realRootCF.Rotation)
+
+	-- Apply
+	return self:set(part, normal, teleportCF)
+end
+
+function WallstickClass.setAndPivotAroundPoint(
+	self: Wallstick,
+	part: BasePart,
+	normal: Vector3,
+	pivotPosition: Vector3 -- …usually hrp.Position
+)
+	-- Desired up-vector in world space
+	local worldNormal = part.CFrame:VectorToWorldSpace(normal)
+
+	-- Current (real) root CFrame in geometry space
+	local realRootCF = self:_getCalculatedRealRootCFrame()
+
+	-- Δ-rotation needed to swing current up to the target up
+	local alignRotation =
+		fromToRotation(realRootCF.YVector, worldNormal, realRootCF.XVector)
+
+	-- New orientation for the root
+	local newRotation = alignRotation * realRootCF.Rotation
+
+	-- Keep the same *radius* from the pivot while we rotate
+	local offset = realRootCF.Position - pivotPosition
+	local rotatedOffset = alignRotation * offset
+
+	local teleportCF =
+		CFrame.new(pivotPosition + rotatedOffset) * newRotation
 
 	return self:set(part, normal, teleportCF)
 end

@@ -29,6 +29,7 @@ function module.setup()
 	renamedCharacterSounds.Name = "RbxCharacterSounds"
 
 	replaceIfExists(StarterCharacterScripts, script.Animate:Clone())
+	replaceIfExists(StarterCharacterScripts, script.Swirl:Clone())
 	replaceIfExists(StarterPlayerScripts, renamedCharacterSounds)
 end
 

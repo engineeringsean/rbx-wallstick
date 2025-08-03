@@ -1,0 +1,38 @@
+-- Server Script: Handle awarding points
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DataStoreService = game:GetService("DataStoreService")
+
+local awardEvent = Instance.new("RemoteEvent")
+awardEvent.Name = "AwardPointEvent"
+awardEvent.Parent = ReplicatedStorage
+
+local pointsStore = DataStoreService:GetDataStore("PlayerPoints")
+
+-- Leaderstats setup (to show points on leaderboard)
+Players.PlayerAdded:Connect(function(player)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	leaderstats.Parent = player
+
+	local points = Instance.new("IntValue")
+	points.Name = "Points"
+	points.Parent = leaderstats
+
+	-- Load from datastore
+	local saved = pointsStore:GetAsync(player.UserId)
+	points.Value = saved or 0
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	local points = player:FindFirstChild("leaderstats") and player.leaderstats.Points.Value or 0
+	pointsStore:SetAsync(player.UserId, points)
+end)
+
+-- Award points from collectibles
+awardEvent.OnServerEvent:Connect(function(player, amount)
+	local stats = player:FindFirstChild("leaderstats")
+	if stats and amount then
+		stats.Points.Value += amount
+	end
+end)

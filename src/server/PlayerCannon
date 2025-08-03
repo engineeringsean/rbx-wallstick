@@ -1,0 +1,60 @@
+-- ServerScriptService/PlayerCannon.server.luau (Regular Script)
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("PlayerCannon script starting...")
+
+-- Create RemoteEvent for launching
+local launchEvent = Instance.new("RemoteEvent")
+launchEvent.Name = "CannonLaunchEvent"
+launchEvent.Parent = ReplicatedStorage
+
+-- Configuration
+local LAUNCH_POWER = 150
+local COOLDOWN_TIME = 0.1
+local lastLaunch = {}
+
+-- Find your cannon in the workspace
+local cannon = workspace:WaitForChild("PlayerCannon")
+print("Found cannon part:", cannon:GetFullName())
+
+-- Create a ProximityPrompt for interaction
+local prompt = Instance.new("ProximityPrompt")
+prompt.ActionText = "Launch"
+prompt.ObjectText = "Cannon"
+prompt.KeyboardKeyCode = Enum.KeyCode.E
+prompt.HoldDuration = 0
+prompt.MaxActivationDistance = 50
+prompt.RequiresLineOfSight = false
+prompt.Parent = cannon
+print("Created and attached ProximityPrompt to cannon")
+
+-- Function to handle launch request from client
+launchEvent.OnServerEvent:Connect(function(player)
+	print("Server received launch request from player:", player.Name)
+
+	-- Check cooldown
+	local now = tick()
+	if lastLaunch[player.UserId] and (now - lastLaunch[player.UserId]) < COOLDOWN_TIME then
+		print("Cooldown active for player:", player.Name)
+		return
+	end
+	lastLaunch[player.UserId] = now
+
+	-- Calculate launch velocity
+	local launchVelocity = cannon.CFrame.XVector * LAUNCH_POWER
+	print("Sending back launch velocity:", launchVelocity)
+
+	-- Send launch data back to client
+	launchEvent:FireClient(player, launchVelocity)
+
+	-- Play sound
+	local launchSound = Instance.new("Sound")
+	launchSound.SoundId = "rbxasset://sounds/swoosh.wav"
+	launchSound.Volume = 1
+	launchSound.Parent = cannon
+	launchSound:Play()
+	game.Debris:AddItem(launchSound, 1)
+end)
+
+print("PlayerCannon script setup complete")

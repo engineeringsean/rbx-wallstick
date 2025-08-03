@@ -1,0 +1,75 @@
+-- Swing Script inside the Pickaxe Tool (LocalScript)
+
+local tool = script.Parent
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedPackages = ReplicatedStorage.SharedPackages
+local RaycastHelper = require(SharedPackages.RaycastHelper)
+local DestructionHandler = require(SharedPackages.DestructionHandler)
+
+local RunService = game:GetService("RunService")
+
+-- Collectible tracking is now handled by the shared DestructionHandler
+
+local function findRaycastObject()
+	local character = tool.Parent
+	local humanoid = character and character:WaitForChild("Humanoid") :: Humanoid
+	local hrp = humanoid and humanoid.RootPart :: BasePart
+
+	local rayParams = RaycastHelper.params({
+		filterType = Enum.RaycastFilterType.Exclude,
+		instances = { character :: Instance },
+	})
+
+	local hipHeight = humanoid.HipHeight
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		hipHeight = 2
+	end
+
+	local hrpCF = hrp.CFrame
+	local result = RaycastHelper.raycast({
+		origin = hrpCF.Position,
+		direction = -(hipHeight + hrp.Size.Y / 2 + 5.0) * hrpCF.YVector,
+		rayParams = rayParams,
+	})
+
+	return result
+end
+
+local function playSwingAnimationDirectly(character)
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		local swingAnimation = Instance.new("Animation")
+		swingAnimation.AnimationId = "rbxassetid://125394513385955" -- Replace with your animation ID
+		local track = humanoid:LoadAnimation(swingAnimation)
+		track.Priority = Enum.AnimationPriority.Action
+		track:Play()
+		track:AdjustSpeed(1.3) -- Play at a different speed
+		return track
+	end
+	return nil
+end
+
+tool.Activated:Connect(function()
+	print("Tool activated!")
+
+	local character = tool.Parent
+	local track = playSwingAnimationDirectly(character)
+	if track then
+		track.Stopped:Wait()
+	else
+		print("Failed to play swing animation directly.")
+	end
+
+	local result = findRaycastObject()
+
+	if result and result.Instance and result.Instance:IsA("BasePart") then
+		local hitPart = result.Instance
+
+		-- Use the shared destruction handler
+		DestructionHandler.handleDestruction(hitPart, player)
+		print("Part destroyed!")
+	end
+end)

@@ -1,0 +1,119 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedPackages = ReplicatedStorage.SharedPackages
+local player = Players.LocalPlayer
+
+local player = Players.LocalPlayer
+local character = script.Parent
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+local RaycastHelper = require(SharedPackages.RaycastHelper)
+local DestructionHandler = require(SharedPackages.DestructionHandler)
+local RunService = game:GetService("RunService")
+
+local GROUND_POUND_ANIMATION_ID = "rbxassetid://70788706420195"
+
+-- Collectible tracking is now handled by the shared DestructionHandler
+
+local function getFakeChar()
+	local wallstickFolder = workspace:FindFirstChild("Wallstick")
+	return wallstickFolder and wallstickFolder:FindFirstChild(player.Name)
+end
+
+local function getFakeHumanoidAndRoot()
+	local fakeChar = getFakeChar()
+	if not fakeChar then return nil, nil end
+	local fakeHumanoid = fakeChar:FindFirstChildOfClass("Humanoid")
+	local fakeRoot = fakeChar:FindFirstChild("HumanoidRootPart")
+	return fakeHumanoid, fakeRoot
+end
+
+local function getDownVector()
+	local _, fakeRoot = getFakeHumanoidAndRoot()
+	if fakeRoot then
+		return -fakeRoot.CFrame.UpVector
+	end
+	return Vector3.new(0, -1, 0)
+end
+
+-- Helper: Play ground pound animation
+local function playGroundPoundAnimation()
+	local anim = Instance.new("Animation")
+	anim.AnimationId = GROUND_POUND_ANIMATION_ID
+	local track = humanoid:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action
+	track:Play()
+	return track
+end
+
+local function findRaycastObject()
+	local humanoid = character and character:WaitForChild("Humanoid") :: Humanoid
+	local hrp = humanoid and humanoid.RootPart :: BasePart
+
+	local rayParams = RaycastHelper.params({
+		filterType = Enum.RaycastFilterType.Exclude,
+		instances = { character :: Instance },
+	})
+
+	local hipHeight = humanoid.HipHeight
+	if humanoid.RigType == Enum.HumanoidRigType.R6 then
+		hipHeight = 2
+	end
+
+	local hrpCF = hrp.CFrame
+	local result = RaycastHelper.raycast({
+		origin = hrpCF.Position,
+		direction = -(hipHeight + hrp.Size.Y / 2 + 5.0) * hrpCF.YVector,
+		rayParams = rayParams,
+	})
+
+	return result
+end
+
+local function forceGroundPound()
+	local fakeHumanoid, fakeRoot = getFakeHumanoidAndRoot()
+	if not (fakeHumanoid and fakeRoot) then return end
+
+	-- Play animation (your code here)
+	local track = playGroundPoundAnimation(character)
+	if track then
+		track.Stopped:Wait()
+	else
+		print("Failed to play swing animation directly.")
+	end
+
+	-- Force downward
+	local down = getDownVector()
+	fakeRoot.AssemblyLinearVelocity = down * 150
+
+	-- Wait for landing
+	-- Play effects, destroy part, etc.
+	local result
+	repeat
+		result = findRaycastObject()
+		task.wait(0.05)
+	until result
+
+	print(result)
+
+	if result and result.Instance and result.Instance:IsA("BasePart") then
+		local hitPart = result.Instance
+
+		-- Use the shared destruction handler
+		DestructionHandler.handleDestruction(hitPart, player)
+		print("Part destroyed!")
+	end
+end
+
+-- Input handler
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
+		-- Check if in air using fake humanoid
+		local fakeHumanoid = getFakeHumanoidAndRoot()
+		if fakeHumanoid and fakeHumanoid:GetState() == Enum.HumanoidStateType.Freefall then
+			forceGroundPound()
+		end
+	end
+end)

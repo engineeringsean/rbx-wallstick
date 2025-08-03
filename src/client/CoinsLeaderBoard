@@ -1,0 +1,13 @@
+local player = game.Players.LocalPlayer
+local screenGui = Instance.new("ScreenGui", player.PlayerGui)
+local pointsLabel = Instance.new("TextLabel", screenGui)
+
+pointsLabel.Size = UDim2.new(0, 200, 0, 50)
+pointsLabel.Position = UDim2.new(0, 10, 0, 10)
+pointsLabel.TextScaled = true
+pointsLabel.Text = "Points: 0"
+
+-- Update when points change
+player:WaitForChild("leaderstats"):WaitForChild("Points").Changed:Connect(function(newVal)
+	pointsLabel.Text = "Points: " .. newVal
+end)

@@ -1,0 +1,104 @@
+local surfaceAsset = game.ReplicatedStorage:WaitForChild("emerald")
+
+-- Create or reuse an "Emeralds" folder in workspace
+local emeraldFolder = workspace:FindFirstChild("Emeralds")
+if not emeraldFolder then
+	emeraldFolder = Instance.new("Folder")
+	emeraldFolder.Name = "Emeralds"
+	emeraldFolder.Parent = workspace
+end
+
+-- Create or reuse a "Planets" folder in workspace for planet collectibles
+local planetFolder = workspace:FindFirstChild("Planets")
+if not planetFolder then
+	planetFolder = Instance.new("Folder")
+	planetFolder.Name = "Planets"
+	planetFolder.Parent = workspace
+end
+
+-- ReplicatedStorage/PlanetFieldGeneratorModule
+local PlanetFieldGenerator = {}
+
+-- Configuration
+local CONFIG = {
+	planetCount = 1000,       -- Keep it smaller for client performance
+	innerRadius = 250,
+	outerRadius = 10000,
+	minSize = 40,
+	maxSize = 1000,
+	falloff = 1.8,
+	center = Vector3.new(0, -200, 0)  -- Relative to the camera/player
+}
+
+local rng = Random.new()
+
+local function getSurfaceCount(planetSize)
+	local base = planetSize / 100
+	return math.clamp(math.floor(base + rng:NextNumber()), 0, 100)
+end
+
+local function placeAssetsOnSphere(planet, count)
+	local radius = planet.Size.X / 2
+	local rng = Random.new()
+
+	for i = 1, count do
+		-- Random direction (unit vector)
+		local u = rng:NextNumber(-1, 1)
+		local theta = rng:NextNumber(0, 2 * math.pi)
+		local s = math.sqrt(1 - u * u)
+		local dir = Vector3.new(s * math.cos(theta), u, s * math.sin(theta))
+
+		-- Position on surface
+		local surfacePos = planet.Position + dir * (radius + 5)
+
+		-- Clone and place asset
+		local obj = surfaceAsset:Clone()
+		obj.CFrame = CFrame.lookAt(surfacePos, surfacePos + dir) * CFrame.Angles(math.rad(270), 0, 0)
+		obj.Parent = emeraldFolder
+		obj.Anchored = true
+		obj.CanQuery = false
+	end
+end
+
+-- Generates planets locally
+function PlanetFieldGenerator.Generate(parent)
+	local rng = Random.new(os.clock())
+
+	planetFolder:ClearAllChildren()
+
+	for i = 1, CONFIG.planetCount do
+		-- Random radius with falloff
+		local rBias  = rng:NextNumber() ^ CONFIG.falloff
+		local radius = CONFIG.innerRadius + (CONFIG.outerRadius - CONFIG.innerRadius) * rBias
+
+		-- Random unit direction
+		local u = rng:NextNumber(-1, 1)
+		local theta = rng:NextNumber(0, 2 * math.pi)
+		local s = math.sqrt(1 - u * u)
+		local dir = Vector3.new(s * math.cos(theta), u, s * math.sin(theta))
+
+		-- Final position (relative to center)
+		local position = CONFIG.center + dir * radius
+
+		-- Size based on radius
+		local sizeBias = radius / CONFIG.outerRadius
+		local size = CONFIG.minSize + (CONFIG.maxSize - CONFIG.minSize) * rng:NextNumber() * sizeBias
+
+		-- Create the planet part
+		local p = Instance.new("Part")
+		p.Shape = Enum.PartType.Ball
+		p.Size = Vector3.new(size, size, size)
+		p.CFrame = CFrame.new(position)
+		p.Anchored = true
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.CanCollide = true
+		p.Parent = planetFolder
+		
+		-- spawn emeralds
+		local assetCount = getSurfaceCount(size)
+		placeAssetsOnSphere(p, assetCount)
+	end
+end
+
+return PlanetFieldGenerator

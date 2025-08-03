@@ -1,0 +1,142 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SharedPackages = ReplicatedStorage.SharedPackages
+local RaycastHelper = require(SharedPackages.RaycastHelper)
+
+local CylinderRaycast = {}
+
+-- Configuration for cylindrical ray distribution
+export type CylinderRaycastConfig = {
+	rayCount: number?, -- Total number of rays to cast around the cylinder (default: 32)
+	radius: number?, -- How far to cast each ray (default: 10)
+	height: number?, -- Height of the cylinder (default: 10)
+	heightLayers: number?, -- Number of height layers to cast rays at (default: 3)
+	visualize: boolean?, -- Whether to show debug rays (default: false)
+	excludeInstances: {Instance}?, -- Instances to exclude from raycast
+}
+
+-- Helper function to generate points around a cylinder
+local function getCylinderRayDirections(rayCount: number, heightLayers: number, height: number): {Vector3}
+	local directions = {}
+	local angleStep = (2 * math.pi) / rayCount
+	local heightStep = height / math.max(heightLayers - 1, 1)
+
+	for layer = 0, heightLayers - 1 do
+		local y = (layer * heightStep) - (height / 2) -- Center the cylinder vertically
+
+		for i = 0, rayCount - 1 do
+			local angle = i * angleStep
+			local x = math.cos(angle)
+			local z = math.sin(angle)
+
+			table.insert(directions, Vector3.new(x, y, z))
+		end
+	end
+
+	return directions
+end
+
+-- Cast rays in a cylindrical pattern and return all hits
+function CylinderRaycast.cylinderCast(origin: Vector3, config: CylinderRaycastConfig)
+	local rayCount = config.rayCount or 32
+	local radius = config.radius or 10
+	local height = config.height or 10
+	local heightLayers = config.heightLayers or 3
+	local visualize = config.visualize or false
+
+	-- Setup raycast parameters
+	local rayParams = RaycastHelper.params({
+		filterType = Enum.RaycastFilterType.Exclude,
+		instances = config.excludeInstances or {},
+	})
+
+	-- Generate cylindrical ray directions
+	local directions = getCylinderRayDirections(rayCount, heightLayers, height)
+
+	-- Store all hits
+	local hits = {}
+
+	-- Cast rays in cylindrical pattern
+	for _, direction in directions do
+		-- For horizontal rays, normalize to unit vector and multiply by radius
+		-- For vertical offset, add the Y component to the origin
+		local rayOrigin = origin + Vector3.new(0, direction.Y, 0)
+		local rayDirection = Vector3.new(direction.X, 0, direction.Z).Unit * radius
+
+		local result = RaycastHelper.raycast({
+			origin = rayOrigin,
+			direction = rayDirection,
+			rayParams = rayParams,
+		})
+
+		if result then
+			table.insert(hits, {
+				Position = result.Position,
+				Normal = result.Normal,
+				Distance = (result.Position - rayOrigin).Magnitude,
+				Instance = result.Instance,
+				Material = result.Material,
+			})
+
+			-- Visualize the hit if enabled
+			if visualize then
+				local line = Instance.new("Part")
+				line.Anchored = true
+				line.CanCollide = false
+				line.Size = Vector3.new(0.1, 0.1, (result.Position - rayOrigin).Magnitude)
+				line.CFrame = CFrame.lookAt(rayOrigin, result.Position) * CFrame.new(0, 0, -line.Size.Z/2)
+				line.Color = Color3.new(1, 0, 0) -- Red for hits
+				line.Transparency = 0.5
+				line.Parent = workspace
+				game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+			end
+		elseif visualize then
+			-- Visualize missed rays if enabled
+			local line = Instance.new("Part")
+			line.Anchored = true
+			line.CanCollide = false
+			line.Size = Vector3.new(0.1, 0.1, radius)
+			line.CFrame = CFrame.lookAt(rayOrigin, rayOrigin + rayDirection) * CFrame.new(0, 0, -radius/2)
+			line.Color = Color3.new(0, 1, 0) -- Green for misses
+			line.Transparency = 0.8
+			line.Parent = workspace
+			game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+		end
+	end
+
+	return hits
+end
+
+-- Find the closest surface in the cylindrical area
+function CylinderRaycast.findClosestSurface(origin: Vector3, config: CylinderRaycastConfig)
+	local hits = CylinderRaycast.cylinderCast(origin, config)
+
+	local closestHit = nil
+	local closestDistance = math.huge
+
+	for _, hit in hits do
+		if hit.Distance < closestDistance then
+			closestDistance = hit.Distance
+			closestHit = hit
+		end
+	end
+
+	return closestHit
+end
+
+-- Get all unique instances hit by the cylindrical raycast
+function CylinderRaycast.getHitInstances(origin: Vector3, config: CylinderRaycastConfig)
+	local hits = CylinderRaycast.cylinderCast(origin, config)
+	local instances = {}
+	local seenInstances = {}
+
+	for _, hit in hits do
+		if hit.Instance and not seenInstances[hit.Instance] then
+			seenInstances[hit.Instance] = true
+			table.insert(instances, hit.Instance)
+		end
+	end
+
+	return instances
+end
+
+return CylinderRaycast
