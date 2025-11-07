@@ -1,0 +1,15 @@
+-- StarterPlayerScripts/PlanetGeneratorClient
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PlanetFieldGenerator = require(ReplicatedStorage:WaitForChild("PlanetFieldGeneratorModule"))
+
+local player = game.Players.LocalPlayer
+local camera = workspace.CurrentCamera  -- Local objects will be stored here
+
+-- Keybind to generate planets
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.G then
+		print("Generating planets for local player only...")
+		PlanetFieldGenerator.Generate(camera)  -- Parent to camera so only this player sees them
+	end
+end)

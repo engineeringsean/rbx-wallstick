@@ -1,0 +1,114 @@
+-- Looks for a model named "Mitochondria" in Workspace and rigs it.
+local ServerStorage = game:GetService("ServerStorage")
+
+local MODEL_NAME = "Mitochondria" -- change if yours is named differently
+
+local function info(...) print("[MitoSetup]", ...) end
+local function warnf(...) warn("[MitoSetup]", ...) end
+
+local function waitForModel()
+	local m = ServerStorage:FindFirstChild(MODEL_NAME, true)
+	
+	return m
+end
+
+local model = waitForModel()
+if not model then
+	return warnf("Model '%s' not found in Workspace. Put it in Workspace before Play.", MODEL_NAME)
+end
+if not model:IsA("Model") then
+	return warnf("'%s' is not a Model.", MODEL_NAME)
+end
+if model:GetAttribute("Rigged") then
+	return info("Already rigged, skipping.")
+end
+
+local root = model:FindFirstChild("HumanoidRootPart")
+if not (root and root:IsA("BasePart")) then
+	return warnf("HumanoidRootPart missing or not a BasePart.")
+end
+
+-- Ensure Humanoid + Animator
+local hum = model:FindFirstChildOfClass("Humanoid")
+if not hum then
+	hum = Instance.new("Humanoid")
+	hum.Parent = model
+	info("Inserted Humanoid")
+end
+if not hum:FindFirstChildOfClass("Animator") then
+	Instance.new("Animator", hum)
+	info("Inserted Animator")
+end
+
+hum.AutomaticScalingEnabled = false
+hum.BreakJointsOnDeath = false
+hum.RequiresNeck = false
+hum.HipHeight = math.max(0, root.Size.Y * 0.5 - 0.1)
+
+-- Fix orientation: Rotate the model so its front faces -Z direction (Roblox standard)
+-- This ensures WASD movement works correctly
+local currentCFrame = root.CFrame
+local rotationToFront = CFrame.fromEulerAnglesXYZ(0, math.rad(270), 0) -- Rotate 90 degrees around Y axis
+root.CFrame = currentCFrame * rotationToFront
+
+-- Clean old joints that could fight our welds
+for _, d in ipairs(model:GetDescendants()) do
+	if d:IsA("JointInstance") or d:IsA("WeldConstraint") then
+		d:Destroy()
+	end
+end
+
+-- Prepare/weld every BasePart to the root
+local n = 0
+for _, d in ipairs(model:GetDescendants()) do
+	if d:IsA("BasePart") and d ~= root then
+		d.Anchored = false
+		d.Massless = true
+		if d.Name ~= "HumanoidRootPart" then
+			d.CanCollide = false
+		end
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = root
+		w.Part1 = d
+		w.Parent = root
+		n += 1
+	end
+end
+
+-- Optional tiny head for nameplate
+if not model:FindFirstChild("Head") then
+	local head = Instance.new("Part")
+	head.Name = "Head"
+	head.Size = Vector3.new(0.2,0.2,0.2)
+	head.Transparency = 1
+	head.CanCollide = false
+	head.Massless = true
+	head.CFrame = root.CFrame * CFrame.new(0, root.Size.Y * 0.75, 0)
+	head.Parent = model
+	local hw = Instance.new("WeldConstraint")
+	hw.Part0 = root
+	hw.Part1 = head
+	hw.Parent = root
+	info("Inserted Head for nameplate")
+end
+
+-- Add RootAttachment for wallstick system compatibility
+if not root:FindFirstChild("RootAttachment") then
+	local rootAttachment = Instance.new("Attachment")
+	rootAttachment.Name = "RootAttachment"
+	rootAttachment.Parent = root
+	info("Inserted RootAttachment for wallstick compatibility")
+end
+
+-- Ensure the model has proper physics setup
+for _, part in ipairs(model:GetDescendants()) do
+	if part:IsA("BasePart") then
+		part.CollisionGroup = "Default"
+		part.CanCollide = true  -- Allow collision for surface detection
+		part.Anchored = false   -- Allow movement
+	end
+end
+
+model.PrimaryPart = root
+model:SetAttribute("Rigged", true)
+info(("Rig complete on %s. Welded %d parts."):format(model:GetFullName(), n))

@@ -11,6 +11,12 @@
 			},
 			"Wallstick": {
 				"$path": "src/client/Wallstick"
+			},
+			"PlanetFieldGeneratorModule": {
+				"$path": "src/client/PlanetFieldGeneratorModule"
+			},
+			"GoldenRingHandler": {
+				"$path": "src/shared/GoldenRingHandler.luau"
 			}
 		},
 		"ServerScriptService": {
@@ -30,6 +36,9 @@
 				"$className": "StarterPlayerScripts",
 				"WallstickClient": {
 					"$path": "src/client/clientEntry.client.luau"
+				},
+				"GoldenRingTest": {
+					"$path": "src/client/GoldenRingTest.client.luau"
 				}
 			}
 		}

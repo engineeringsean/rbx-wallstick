@@ -1,0 +1,32 @@
+local Players = game:GetService("Players")
+local ServerStorage = game:GetService("ServerStorage")
+
+local TEMPLATE = ServerStorage:WaitForChild("OrganismRigs"):WaitForChild("Mitochondria")
+
+
+
+local function spawnAsMito(player)
+	local rig = TEMPLATE:Clone()
+	print("Spawning as...")
+	print(TEMPLATE)
+	rig.Name = player.Name
+	rig:PivotTo(CFrame.new(0, 20, 0)) -- spawn above ground so you don't clip
+	rig.Parent = workspace
+	player.Character = rig
+
+	local root = rig:WaitForChild("HumanoidRootPart")
+	root:SetNetworkOwner(player) -- smoother client control
+	
+	-- Simple character setup - let the camera system handle itself
+	local humanoid = rig:WaitForChild("Humanoid")
+	print("Mitochondria character spawned successfully")
+end
+
+Players.PlayerAdded:Connect(function(plr)
+	-- Replace default character as soon as Roblox spawns it
+	plr.CharacterAdded:Connect(function()
+		task.defer(function()
+			spawnAsMito(plr)
+		end)
+	end)
+end)
