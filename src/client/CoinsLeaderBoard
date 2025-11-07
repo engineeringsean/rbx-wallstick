@@ -1,13 +1,114 @@
 local player = game.Players.LocalPlayer
-local screenGui = Instance.new("ScreenGui", player.PlayerGui)
-local pointsLabel = Instance.new("TextLabel", screenGui)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-pointsLabel.Size = UDim2.new(0, 200, 0, 50)
-pointsLabel.Position = UDim2.new(0, 10, 0, 10)
-pointsLabel.TextScaled = true
-pointsLabel.Text = "Points: 0"
+-- Create main UI container
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CollectiblesUI"
+screenGui.Parent = player.PlayerGui
 
--- Update when points change
-player:WaitForChild("leaderstats"):WaitForChild("Points").Changed:Connect(function(newVal)
-	pointsLabel.Text = "Points: " .. newVal
-end)
+-- Create frame to hold both collectible displays
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 150, 0, 150)
+mainFrame.Position = UDim2.new(0, 10, 0, 10)
+mainFrame.BackgroundTransparency = 1
+mainFrame.Parent = screenGui
+
+--[[ Create coin display
+local coinFrame = Instance.new("Frame")
+coinFrame.Name = "CoinFrame"
+coinFrame.Size = UDim2.new(0, 180, 0, 60)
+coinFrame.Position = UDim2.new(0, 0, 0, 0)
+coinFrame.BackgroundColor3 = Color3.fromRGB(255, 215, 0) -- Gold background
+coinFrame.BorderSizePixel = 0
+coinFrame.Parent = mainFrame
+]]
+
+-- Coin icon (ImageLabel)
+local coinIcon = Instance.new("ImageLabel")
+coinIcon.Name = "CoinIcon"
+coinIcon.Size = UDim2.new(0, 100, 0, 100)
+coinIcon.Position = UDim2.new(0, 5, 0.5, -90)
+coinIcon.BackgroundTransparency = 1
+coinIcon.Image = "rbxthumb://type=Asset&id=14861633855&w=420&h=420" -- Default coin icon (replace with your coin asset ID)
+coinIcon.Parent = mainFrame
+
+-- Coin count label
+local coinLabel = Instance.new("TextLabel")
+coinLabel.Name = "CoinLabel"
+coinLabel.Size = UDim2.new(0, 160, 0, 60)
+coinLabel.Position = UDim2.new(0, 100, 0.5, -70)
+coinLabel.BackgroundTransparency = 1
+coinLabel.Text = "x 0"
+coinLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+coinLabel.TextXAlignment = Enum.TextXAlignment.Left
+coinLabel.TextScaled = false
+coinLabel.TextSize = 48
+coinLabel.Font = Enum.Font.GothamBold
+coinLabel.Parent = mainFrame
+
+--[[ Create crystal display
+local crystalFrame = Instance.new("Frame")
+crystalFrame.Name = "CrystalFrame"
+crystalFrame.Size = UDim2.new(0, 180, 0, 60)
+crystalFrame.Position = UDim2.new(0, 200, 0, 0)
+crystalFrame.BackgroundColor3 = Color3.fromRGB(0, 255, 127) -- Emerald background
+crystalFrame.BorderSizePixel = 0
+crystalFrame.Parent = mainFrame
+]]
+
+-- Crystal icon (ImageLabel)
+local crystalIcon = Instance.new("ImageLabel")
+crystalIcon.Name = "CrystalIcon"
+crystalIcon.Size = UDim2.new(0, 120, 0, 120)
+crystalIcon.Position = UDim2.new(0, 0, 0.5, -18)
+crystalIcon.BackgroundTransparency = 1
+crystalIcon.Image = "rbxthumb://type=Asset&id=11284726753&w=420&h=420" -- Default crystal icon (replace with your crystal asset ID)
+crystalIcon.Parent = mainFrame
+
+-- Crystal count label
+local crystalLabel = Instance.new("TextLabel")
+crystalLabel.Name = "CrystalLabel"
+crystalLabel.Size = UDim2.new(0, 160, 0, 60)
+crystalLabel.Position = UDim2.new(0, 100, 0.5, 15)
+crystalLabel.BackgroundTransparency = 1
+crystalLabel.Text = "x 0"
+crystalLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+crystalLabel.TextXAlignment = Enum.TextXAlignment.Left
+crystalLabel.TextScaled = false
+crystalLabel.TextSize = 48
+crystalLabel.Font = Enum.Font.GothamBold
+crystalLabel.Parent = mainFrame
+
+-- Add rounded corners to frames
+local function addRoundedCorners(frame)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = frame
+end
+
+--addRoundedCorners(coinFrame)
+--addRoundedCorners(crystalFrame)
+
+-- Update when collectibles change
+local function updateCollectibles()
+	local leaderstats = player:WaitForChild("leaderstats")
+
+	-- Update coins
+	local coins = leaderstats:WaitForChild("Coins")
+	coins.Changed:Connect(function(newVal)
+		coinLabel.Text = "x " .. newVal
+	end)
+
+	-- Update crystals
+	local crystals = leaderstats:WaitForChild("Crystals")
+	crystals.Changed:Connect(function(newVal)
+		crystalLabel.Text = "x " .. newVal
+	end)
+
+	-- Set initial values
+	coinLabel.Text = "x " .. coins.Value
+	crystalLabel.Text = "x " .. crystals.Value
+end
+
+updateCollectibles()

@@ -1,38 +1,65 @@
--- Server Script: Handle awarding points
+-- Server Script: Handle awarding collectibles
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 
 local awardEvent = Instance.new("RemoteEvent")
-awardEvent.Name = "AwardPointEvent"
+awardEvent.Name = "AwardCollectibleEvent"
 awardEvent.Parent = ReplicatedStorage
 
-local pointsStore = DataStoreService:GetDataStore("PlayerPoints")
+local coinsStore = DataStoreService:GetDataStore("PlayerCoins")
+local crystalsStore = DataStoreService:GetDataStore("PlayerCrystals")
 
--- Leaderstats setup (to show points on leaderboard)
+-- Leaderstats setup (to show collectibles on leaderboard)
 Players.PlayerAdded:Connect(function(player)
 	local leaderstats = Instance.new("Folder")
 	leaderstats.Name = "leaderstats"
 	leaderstats.Parent = player
 
-	local points = Instance.new("IntValue")
-	points.Name = "Points"
-	points.Parent = leaderstats
+	local coins = Instance.new("IntValue")
+	coins.Name = "Coins"
+	coins.Parent = leaderstats
+
+	local crystals = Instance.new("IntValue")
+	crystals.Name = "Crystals"
+	crystals.Parent = leaderstats
 
 	-- Load from datastore
-	local saved = pointsStore:GetAsync(player.UserId)
-	points.Value = saved or 0
+	local savedCoins = coinsStore:GetAsync(player.UserId)
+	local savedCrystals = crystalsStore:GetAsync(player.UserId)
+	coins.Value = savedCoins or 0
+	crystals.Value = savedCrystals or 0
 end)
 
 Players.PlayerRemoving:Connect(function(player)
-	local points = player:FindFirstChild("leaderstats") and player.leaderstats.Points.Value or 0
-	pointsStore:SetAsync(player.UserId, points)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local coins = leaderstats:FindFirstChild("Coins")
+		local crystals = leaderstats:FindFirstChild("Crystals")
+
+		if coins then
+			coinsStore:SetAsync(player.UserId, coins.Value)
+		end
+		if crystals then
+			crystalsStore:SetAsync(player.UserId, crystals.Value)
+		end
+	end
 end)
 
--- Award points from collectibles
-awardEvent.OnServerEvent:Connect(function(player, amount)
+-- Award collectibles from destruction
+awardEvent.OnServerEvent:Connect(function(player, collectibleType, amount)
 	local stats = player:FindFirstChild("leaderstats")
 	if stats and amount then
-		stats.Points.Value += amount
+		if collectibleType == "COIN" then
+			local coins = stats:FindFirstChild("Coins")
+			if coins then
+				coins.Value += amount
+			end
+		elseif collectibleType == "CRYSTAL" then
+			local crystals = stats:FindFirstChild("Crystals")
+			if crystals then
+				crystals.Value += amount
+			end
+		end
 	end
 end)

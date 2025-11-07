@@ -14,6 +14,29 @@ export type CylinderRaycastConfig = {
 	excludeInstances: {Instance}?, -- Instances to exclude from raycast
 }
 
+-- Function to check if a hit instance is a valid target (planet or emerald)
+local function isValidTarget(hitInstance)
+	if not hitInstance then
+		return false
+	end
+	
+	-- Check if the part is in the Planets folder (client-local planets)
+	if hitInstance.Parent and hitInstance.Parent.Name == "Planets" then
+		return true
+	-- Check if the part is in the Emeralds folder (client-local emeralds)
+	elseif hitInstance.Parent and hitInstance.Parent.Name == "Emeralds" then
+		return true
+	-- Check if the part is a planet collectible
+	elseif hitInstance.Name == "PlanetCollectible" then
+		return true
+	-- Check if the part is an emerald asset
+	elseif hitInstance.Name == "emerald" or hitInstance.Name:find("emerald") then
+		return true
+	end
+	
+	return false
+end
+
 -- Helper function to generate points around a cylinder
 local function getCylinderRayDirections(rayCount: number, heightLayers: number, height: number): {Vector3}
 	local directions = {}
@@ -69,25 +92,27 @@ function CylinderRaycast.cylinderCast(origin: Vector3, config: CylinderRaycastCo
 		})
 
 		if result then
-			table.insert(hits, {
-				Position = result.Position,
-				Normal = result.Normal,
-				Distance = (result.Position - rayOrigin).Magnitude,
-				Instance = result.Instance,
-				Material = result.Material,
-			})
+			if isValidTarget(result.Instance) then
+				table.insert(hits, {
+					Position = result.Position,
+					Normal = result.Normal,
+					Distance = (result.Position - rayOrigin).Magnitude,
+					Instance = result.Instance,
+					Material = result.Material,
+				})
 
-			-- Visualize the hit if enabled
-			if visualize then
-				local line = Instance.new("Part")
-				line.Anchored = true
-				line.CanCollide = false
-				line.Size = Vector3.new(0.1, 0.1, (result.Position - rayOrigin).Magnitude)
-				line.CFrame = CFrame.lookAt(rayOrigin, result.Position) * CFrame.new(0, 0, -line.Size.Z/2)
-				line.Color = Color3.new(1, 0, 0) -- Red for hits
-				line.Transparency = 0.5
-				line.Parent = workspace
-				game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+				-- Visualize the hit if enabled
+				if visualize then
+					local line = Instance.new("Part")
+					line.Anchored = true
+					line.CanCollide = false
+					line.Size = Vector3.new(0.1, 0.1, (result.Position - rayOrigin).Magnitude)
+					line.CFrame = CFrame.lookAt(rayOrigin, result.Position) * CFrame.new(0, 0, -line.Size.Z/2)
+					line.Color = Color3.new(1, 0, 0) -- Red for hits
+					line.Transparency = 0.5
+					line.Parent = workspace
+					game:GetService("Debris"):AddItem(line, 1) -- Remove after 1 second
+				end
 			end
 		elseif visualize then
 			-- Visualize missed rays if enabled

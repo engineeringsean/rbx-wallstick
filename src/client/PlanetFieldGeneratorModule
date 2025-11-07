@@ -1,21 +1,4 @@
-local surfaceAsset = game.ReplicatedStorage:WaitForChild("emerald")
-
--- Create or reuse an "Emeralds" folder in workspace
-local emeraldFolder = workspace:FindFirstChild("Emeralds")
-if not emeraldFolder then
-	emeraldFolder = Instance.new("Folder")
-	emeraldFolder.Name = "Emeralds"
-	emeraldFolder.Parent = workspace
-end
-
--- Create or reuse a "Planets" folder in workspace for planet collectibles
-local planetFolder = workspace:FindFirstChild("Planets")
-if not planetFolder then
-	planetFolder = Instance.new("Folder")
-	planetFolder.Name = "Planets"
-	planetFolder.Parent = workspace
-end
-
+-- PlanetFieldGeneratorModule.lua
 -- ReplicatedStorage/PlanetFieldGeneratorModule
 local PlanetFieldGenerator = {}
 
@@ -23,82 +6,567 @@ local PlanetFieldGenerator = {}
 local CONFIG = {
 	planetCount = 1000,       -- Keep it smaller for client performance
 	innerRadius = 250,
-	outerRadius = 10000,
+	outerRadius = 7500,
 	minSize = 40,
 	maxSize = 1000,
-	falloff = 1.8,
-	center = Vector3.new(0, -200, 0)  -- Relative to the camera/player
+	falloff = 1.2,
+	center = Vector3.new(0, -200, 0), -- Relative to the camera/player
+
+	-- Spinning config (physics-based)
+	spinFraction   = 0.20,                -- ~20% of planets use physics spin
+	spinMinSpeed   = math.rad(5),         -- radians/sec
+	spinMaxSpeed   = math.rad(20),        -- radians/sec
+	spinAxisRandom = true,                -- random axis per spinning planet
+	anchorSize     = 0.2,                 -- tiny invisible ball at center
+	alignRigidity  = true,                -- stiffer constraint
+	alignResponse  = 200,                 -- snappiness of AlignPosition
+	alignMaxForce  = 1e9,                 -- big number to hold steady
+	avMaxTorque    = 1e9,                 -- torque budget for AngularVelocity
+	baseGap = 10,            -- always add this much beyond just-touching
+	largeScale = 0.50,       -- scales with max(radiusA, radiusB)
+	spinHaloScale = 0.35,    -- extra margin per spinning planet, as a fraction of its radius
+	nonSpinReserve = 5,     -- small reservation around non-spinning planets (studs)
+	spinMaxPlacementAttempts = 25, -- how many tries to find a clear spot
+
+	-- Golden Ring config
+	ringCount = 200,           -- Number of Golden Rings to spawn
+	ringMinSize = 40,         -- Minimum ring size
+	ringMaxSize = 500,        -- Maximum ring size
+	ringSpacing = 50,        -- Minimum spacing between rings
+	ringFalloff = 1.5,        -- How quickly ring size increases with distance
+
+	-- Geyser config
+	geyserSpawnChance = 0.5, -- Chance for a planet to spawn geysers
+	geyserMinCount = 1,     -- Minimum number of geysers per planet
+	geyserMaxCount = 3,     -- Maximum number of geysers per planet
+	geyserSurfaceOffset = 0, -- Distance from planet surface for geyser spawn
+	geyserSpacing = 10,    -- Minimum spacing between geysers on the same planet
 }
 
 local rng = Random.new()
+
+local function minCenterSeparation(sizeA, sizeB, isSpinA, isSpinB)
+	local ra, rb = sizeA * 0.5, sizeB * 0.5
+	local touchAndBase = (ra + rb) + CONFIG.baseGap
+	local scaleByLargest = CONFIG.largeScale * math.max(ra, rb)
+	local haloA = (isSpinA and (CONFIG.spinHaloScale * ra) or CONFIG.nonSpinReserve)
+	local haloB = (isSpinB and (CONFIG.spinHaloScale * rb) or CONFIG.nonSpinReserve)
+	return touchAndBase + scaleByLargest + haloA + haloB
+end
+
+local function isClear(candidatePos, candidateSize, candidateIsSpin, placed)
+	for _, info in ipairs(placed) do
+		local need = minCenterSeparation(candidateSize, info.size, candidateIsSpin, info.isSpin)
+		if (candidatePos - info.pos).Magnitude < need then
+			return false
+		end
+	end
+	return true
+end
+
+-- Track which emeralds belong to which planet
+local planetEmeraldMap = {}
 
 local function getSurfaceCount(planetSize)
 	local base = planetSize / 100
 	return math.clamp(math.floor(base + rng:NextNumber()), 0, 100)
 end
 
-local function placeAssetsOnSphere(planet, count)
+local function placeAssetsOnSphere(planet, count, emeraldFolder, surfaceAsset)
 	local radius = planet.Size.X / 2
-	local rng = Random.new()
+	local rngLocal = Random.new()
+	local emeralds = {}
 
 	for i = 1, count do
-		-- Random direction (unit vector)
-		local u = rng:NextNumber(-1, 1)
-		local theta = rng:NextNumber(0, 2 * math.pi)
+		local u = rngLocal:NextNumber(-1, 1)
+		local theta = rngLocal:NextNumber(0, 2 * math.pi)
 		local s = math.sqrt(1 - u * u)
 		local dir = Vector3.new(s * math.cos(theta), u, s * math.sin(theta))
-
-		-- Position on surface
 		local surfacePos = planet.Position + dir * (radius + 5)
 
-		-- Clone and place asset
 		local obj = surfaceAsset:Clone()
 		obj.CFrame = CFrame.lookAt(surfacePos, surfacePos + dir) * CFrame.Angles(math.rad(270), 0, 0)
 		obj.Parent = emeraldFolder
 		obj.Anchored = true
 		obj.CanQuery = false
+
+		table.insert(emeralds, obj)
+	end
+
+	planetEmeraldMap[planet] = emeralds
+	return emeralds
+end
+
+local function setupSpinningSystem(planet, emeralds, folders, rngObj)
+	local anchor = Instance.new("Part")
+	anchor.Name = "SpinAnchor"
+	anchor.Shape = Enum.PartType.Ball
+	anchor.Size = Vector3.new(CONFIG.anchorSize, CONFIG.anchorSize, CONFIG.anchorSize)
+	anchor.Transparency = 1
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.Anchored = true
+	anchor.CFrame = CFrame.new(planet.Position)
+	anchor.Parent = folders.anchors
+
+	local attAnchor = Instance.new("Attachment"); attAnchor.Name = "AnchorAttachment"; attAnchor.Parent = anchor
+	local attPlanet = Instance.new("Attachment"); attPlanet.Name = "PlanetAttachment"; attPlanet.Parent = planet
+
+	local ap = Instance.new("AlignPosition")
+	ap.Name = "PlanetAlignToAnchor"
+	ap.ApplyAtCenterOfMass = true
+	ap.Attachment0 = attPlanet
+	ap.Attachment1 = attAnchor
+	ap.RigidityEnabled = CONFIG.alignRigidity
+	ap.Responsiveness = CONFIG.alignResponse
+	ap.MaxForce = CONFIG.alignMaxForce
+	ap.Parent = planet
+
+	local axis
+	if CONFIG.spinAxisRandom then
+		local u = rngObj:NextNumber(-1, 1)
+		local t = rngObj:NextNumber(0, 2 * math.pi)
+		local s = math.sqrt(1 - u * u)
+		axis = Vector3.new(s * math.cos(t), u, s * math.sin(t)).Unit
+	else
+		axis = Vector3.new(0, 1, 0)
+	end
+
+	local speed = rngObj:NextNumber(CONFIG.spinMinSpeed, CONFIG.spinMaxSpeed)
+	local av = Instance.new("AngularVelocity")
+	av.Name = "PlanetSpin"
+	av.Attachment0 = attPlanet
+	av.RelativeTo = Enum.ActuatorRelativeTo.World
+	av.AngularVelocity = axis * speed
+	av.MaxTorque = CONFIG.avMaxTorque
+	av.Parent = planet
+
+	-- 6) Unanchor the whole assembly so constraints can act
+	for _, part in ipairs(planet:GetConnectedParts(true)) do
+		part.Anchored = false
+	end
+
+
+	for _, e in ipairs(emeralds) do
+		e.Anchored = false
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = e
+		weld.Part1 = planet
+		weld.Parent = e
+	end
+end
+
+function PlanetFieldGenerator.GetPlanetEmeralds(planet)
+	return planetEmeraldMap[planet] or {}
+end
+
+function PlanetFieldGenerator.CleanupPlanetMapping(planet)
+	planetEmeraldMap[planet] = nil
+end
+
+-- Load mesh templates from ReplicatedStorage/PlanetMeshes
+local function getPlanetTemplates()
+	local folder = game.ReplicatedStorage:FindFirstChild("PlanetMeshes")
+	if not folder then return {} end
+	local out = {}
+	for _, child in ipairs(folder:GetChildren()) do
+		if child:IsA("BasePart") then
+			table.insert(out, child)
+		end
+	end
+	return out
+end
+
+-- Function to check if a ring position is clear of other rings
+local function isRingPositionClear(candidatePos, candidateSize, placedRings)
+	for _, ringInfo in ipairs(placedRings) do
+		local distance = (candidatePos - ringInfo.pos).Magnitude
+		local minSeparation = CONFIG.ringSpacing + math.max(candidateSize.X, candidateSize.Z) / 2 + 
+			math.max(ringInfo.size.X, ringInfo.size.Z) / 2
+
+		if distance < minSeparation then
+			return false
+		end
+	end
+	return true
+end
+
+-- Function to check if a geyser position is clear of other geysers on the same planet
+local function isGeyserPositionClear(candidatePos, placedGeysers, planetRadius)
+	for _, geyserInfo in ipairs(placedGeysers) do
+		local distance = (candidatePos - geyserInfo.pos).Magnitude
+		if distance < CONFIG.geyserSpacing then
+			return false
+		end
+	end
+	return true
+end
+
+-- Function to generate geysers on a planet surface
+local function generatePlanetGeysers(planet, planetSize, rngGen)
+	-- Check if this planet should get geysers
+	if rngGen:NextNumber() > CONFIG.geyserSpawnChance then
+		return
+	end
+	
+	-- Get the geyser template from ReplicatedStorage
+	local geyserTemplate = game.ReplicatedStorage:FindFirstChild("Geyser")
+	if not geyserTemplate then
+		warn("Geyser template not found in ReplicatedStorage")
+		return
+	end
+	
+	-- Create or find the Geysers folder
+	local geysersFolder = workspace:FindFirstChild("Geysers") or Instance.new("Folder")
+	geysersFolder.Name = "Geysers"
+	geysersFolder.Parent = workspace
+	
+	local planetRadius = planetSize / 2
+	local geyserCount = rngGen:NextInteger(CONFIG.geyserMinCount, CONFIG.geyserMaxCount)
+	local placedGeysers = {}
+	
+	for i = 1, geyserCount do
+		local attempts = 15
+		local position
+		
+		for attempt = 1, attempts do
+			-- Generate random position on sphere surface
+			local u = rngGen:NextNumber(-1, 1)
+			local theta = rngGen:NextNumber(0, 2 * math.pi)
+			local s = math.sqrt(1 - u * u)
+			local dir = Vector3.new(s * math.cos(theta), u, s * math.sin(theta))
+			
+			-- Position the geyser above the planet surface
+			local surfacePos = planet.Position + dir * (planetRadius + CONFIG.geyserSurfaceOffset)
+			
+			-- Check if position is clear of other geysers on this planet
+			if isGeyserPositionClear(surfacePos, placedGeysers, planetRadius) then
+				position = surfacePos
+				break
+			end
+		end
+		
+		if not position then
+			continue
+		end
+		
+		-- Create the geyser by cloning the template
+		local geyser = geyserTemplate:Clone()
+		
+		-- Debug: Print geyser structure to verify children are cloned
+		print("Created geyser:", geyser.Name)
+		print("Geyser children:")
+		for _, child in pairs(geyser:GetChildren()) do
+			print("  -", child.Name, "(", child.ClassName, ")")
+		end
+		
+		-- Store the original relative positions of all child parts BEFORE moving the geyser
+		local childRelativePositions = {}
+		for _, child in pairs(geyser:GetChildren()) do
+			if child:IsA("BasePart") then
+				-- Calculate relative position from geyser center using CFrame
+				local childCFrame = child.CFrame
+				local geyserCFrame = geyser.CFrame
+				local relativeCFrame = geyserCFrame:ToObjectSpace(childCFrame)
+				
+				table.insert(childRelativePositions, {
+					part = child,
+					relativeCFrame = relativeCFrame
+				})
+			end
+		end
+		
+		-- Calculate the proper orientation to face away from the planet surface
+		local planetCenter = planet.Position
+		local surfaceNormal = (position - planetCenter).Unit
+		
+		-- Create a CFrame that points away from the planet surface
+		-- The Y-axis of the geyser should point in the direction of the surface normal
+		local upVector = surfaceNormal
+		local forwardVector = Vector3.new(0, 0, -1) -- Default forward direction
+		
+		-- If the surface normal is pointing straight up or down, use a different forward vector
+		if math.abs(surfaceNormal.Y) > 0.9 then
+			forwardVector = Vector3.new(1, 0, 0)
+		end
+		
+		-- Create the right vector using cross product
+		local rightVector = upVector:Cross(forwardVector).Unit
+		-- Recalculate forward vector to ensure orthogonality
+		forwardVector = rightVector:Cross(upVector).Unit
+		
+		-- Build the CFrame with proper orientation
+		local orientationCFrame = CFrame.fromMatrix(position, rightVector, upVector, forwardVector)
+		
+		-- Add some random rotation around the up vector for variety
+		local randomRotation = rngGen:NextNumber(0, 2 * math.pi)
+		local finalCFrame = orientationCFrame * CFrame.Angles(0, randomRotation, 0)
+		
+		-- Position the geyser root
+		geyser.CFrame = finalCFrame
+		
+		-- Now reposition all child parts to maintain their relative positions
+		for _, childInfo in pairs(childRelativePositions) do
+			local child = childInfo.part
+			local relativeCFrame = childInfo.relativeCFrame
+			
+			-- Apply the relative position to the new geyser CFrame
+			child.CFrame = finalCFrame * relativeCFrame
+			
+			-- Configure collision and query properties based on part name
+			if child.Name == "Bouncer" or child.Name == "JumpPart" then
+				-- Bouncer and JumpPart: Only queryable (for proximity detection)
+				child.Anchored = true
+				child.CanCollide = false
+				child.CanQuery = true
+				child.CanTouch = false
+			elseif child.Name == "Water Fountain" or child.Name == "Water Fog" then
+				-- Water Fountain and Water Fog: No collision, no query, no touch
+				child.Anchored = true
+				child.CanCollide = false
+				child.CanQuery = false
+				child.CanTouch = false
+			else
+				-- Default for any other parts: No collision, no query, no touch
+				child.Anchored = true
+				child.CanCollide = false
+				child.CanQuery = false
+				child.CanTouch = false
+			end
+		end
+		
+		geyser.Parent = geysersFolder
+		
+		-- Track placed geyser
+		table.insert(placedGeysers, {
+			pos = position,
+			ref = geyser
+		})
+		
+		-- If the planet is spinning, weld the geyser to it so they move together
+		if planet:GetAttribute("IsSpinning") then
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = geyser
+			weld.Part1 = planet
+			weld.Parent = geyser
+		end
+	end
+	
+	-- Debug: Print summary of geyser generation
+	if #placedGeysers > 0 then
+		print("Generated", #placedGeysers, "geysers for planet:", planet.Name or "Unknown")
+	end
+end
+
+-- Function to generate Golden Rings throughout the planet field
+local function generateGoldenRings(planetFolder, rngGen)
+	local goldenRingsFolder = workspace:FindFirstChild("GoldenRings") or Instance.new("Folder")
+	goldenRingsFolder.Name = "GoldenRings"
+	goldenRingsFolder.Parent = workspace
+
+	-- Get the Golden Ring template from ReplicatedStorage
+	local ringTemplate = game.ReplicatedStorage:FindFirstChild("GoldenRing")
+	if not ringTemplate then
+		warn("GoldenRing template not found in ReplicatedStorage")
+		return
+	end
+
+	local placedRings = {}
+
+	for i = 1, CONFIG.ringCount do
+		local rBias = rngGen:NextNumber() ^ CONFIG.ringFalloff
+		local radius = CONFIG.innerRadius + (CONFIG.outerRadius - CONFIG.innerRadius) * rBias
+
+		-- Size bias: rings get bigger as they get further from center
+		local sizeBias = radius / CONFIG.outerRadius
+		local baseSize = CONFIG.ringMinSize + (CONFIG.ringMaxSize - CONFIG.ringMinSize) * rngGen:NextNumber() * sizeBias
+
+		-- Ring dimensions: [X, Y, Z] where X and Z are the ring diameter, Y is thickness
+		local ringSize = Vector3.new(baseSize, baseSize * 0.1, baseSize)
+
+		local position
+		local attempts = 10
+
+		for attempt = 1, attempts do
+			local u = rngGen:NextNumber(-1, 1)
+			local t = rngGen:NextNumber(0, 2 * math.pi)
+			local s = math.sqrt(1 - u * u)
+			local dir = Vector3.new(s * math.cos(t), u, s * math.sin(t))
+			local candidate = CONFIG.center + dir * radius
+
+			-- Check if position is clear of other rings
+			if isRingPositionClear(candidate, ringSize, placedRings) then
+				position = candidate
+				break
+			end
+		end
+
+		if not position then
+			continue
+		end
+
+		-- Create the Golden Ring
+		local ring = ringTemplate:Clone()
+		ring.Size = ringSize
+		ring.CFrame = CFrame.new(position)
+
+		-- Random rotation in all axes for variety
+		local randomRotationX = rngGen:NextNumber(0, 2 * math.pi)
+		local randomRotationY = rngGen:NextNumber(0, 2 * math.pi)
+		local randomRotationZ = rngGen:NextNumber(0, 2 * math.pi)
+		local randomRotation = CFrame.Angles(randomRotationX, randomRotationY, randomRotationZ)
+		ring.CFrame = ring.CFrame * randomRotation
+
+		ring.Parent = goldenRingsFolder
+
+		-- Track placed ring
+		table.insert(placedRings, {
+			pos = position,
+			size = ringSize,
+			ref = ring
+		})
+
+		-- Register the ring with the GoldenRingHandler if available
+		local GoldenRingHandler = require(game.ReplicatedStorage.SharedPackages:FindFirstChild("GoldenRingHandler"))
+		if GoldenRingHandler then
+			GoldenRingHandler.registerRing(ring)
+		end
 	end
 end
 
 -- Generates planets locally
 function PlanetFieldGenerator.Generate(parent)
-	local rng = Random.new(os.clock())
+	local rngGen = Random.new(os.clock())
+
+	planetEmeraldMap = {}
+
+	local surfaceAsset = game.ReplicatedStorage:WaitForChild("emerald")
+
+	local emeraldFolder = workspace:FindFirstChild("Emeralds") or Instance.new("Folder")
+	emeraldFolder.Name = "Emeralds"
+	emeraldFolder.Parent = workspace
+
+	local planetFolder = workspace:FindFirstChild("Planets") or Instance.new("Folder")
+	planetFolder.Name = "Planets"
+	planetFolder.Parent = workspace
+
+	local anchorFolder = workspace:FindFirstChild("PlanetAnchors") or Instance.new("Folder")
+	anchorFolder.Name = "PlanetAnchors"
+	anchorFolder.Parent = workspace
 
 	planetFolder:ClearAllChildren()
+	emeraldFolder:ClearAllChildren()
+	anchorFolder:ClearAllChildren()
+
+	-- NEW: cache templates once
+	local templates = getPlanetTemplates()
+
+	local placedPlanets = {}
 
 	for i = 1, CONFIG.planetCount do
-		-- Random radius with falloff
-		local rBias  = rng:NextNumber() ^ CONFIG.falloff
+		local rBias  = rngGen:NextNumber() ^ CONFIG.falloff
 		local radius = CONFIG.innerRadius + (CONFIG.outerRadius - CONFIG.innerRadius) * rBias
 
-		-- Random unit direction
-		local u = rng:NextNumber(-1, 1)
-		local theta = rng:NextNumber(0, 2 * math.pi)
-		local s = math.sqrt(1 - u * u)
-		local dir = Vector3.new(s * math.cos(theta), u, s * math.sin(theta))
-
-		-- Final position (relative to center)
-		local position = CONFIG.center + dir * radius
-
-		-- Size based on radius
 		local sizeBias = radius / CONFIG.outerRadius
-		local size = CONFIG.minSize + (CONFIG.maxSize - CONFIG.minSize) * rng:NextNumber() * sizeBias
+		local size = CONFIG.minSize + (CONFIG.maxSize - CONFIG.minSize) * rngGen:NextNumber() * sizeBias
 
-		-- Create the planet part
-		local p = Instance.new("Part")
-		p.Shape = Enum.PartType.Ball
+		local willSpin = (rngGen:NextNumber() < CONFIG.spinFraction)
+		local position
+
+		local attempts = willSpin and CONFIG.spinMaxPlacementAttempts or 3
+		for attempt = 1, attempts do
+			local u = rngGen:NextNumber(-1, 1)
+			local t = rngGen:NextNumber(0, 2 * math.pi)
+			local s = math.sqrt(1 - u * u)
+			local dir = Vector3.new(s * math.cos(t), u, s * math.sin(t))
+			local candidate = CONFIG.center + dir * radius
+
+			if isClear(candidate, size, willSpin, placedPlanets) then
+				position = candidate
+				break
+			end
+		end
+
+		if not position and willSpin then
+			willSpin = false
+			for attempt = 1, 3 do
+				local u = rngGen:NextNumber(-1, 1)
+				local t = rngGen:NextNumber(0, 2 * math.pi)
+				local s = math.sqrt(1 - u * u)
+				local dir = Vector3.new(s * math.cos(t), u, s * math.sin(t))
+				local candidate = CONFIG.center + dir * radius
+				if isClear(candidate, size, false, placedPlanets) then
+					position = candidate
+					break
+				end
+			end
+		end
+
+		if not position then
+			continue
+		end
+
+		-- NEW: clone a random template if available; otherwise fall back to a plain sphere mesh
+		local p -- visual planet (MeshPart or Part)
+		if #templates > 0 then
+			local tpl = templates[rngGen:NextInteger(1, #templates)]
+			p = tpl:Clone()
+		else
+			p = Instance.new("Part")
+			p.Shape = Enum.PartType.Ball
+			p.TopSurface = Enum.SurfaceType.Smooth
+			p.BottomSurface = Enum.SurfaceType.Smooth
+		end
+
+		-- Keep spacing/emerald math consistent
 		p.Size = Vector3.new(size, size, size)
 		p.CFrame = CFrame.new(position)
-		p.Anchored = true
-		p.TopSurface = Enum.SurfaceType.Smooth
-		p.BottomSurface = Enum.SurfaceType.Smooth
-		p.CanCollide = true
 		p.Parent = planetFolder
-		
-		-- spawn emeralds
+
+		-- *** Spherical collider the character & raycasts will hit ***
+		local collider = Instance.new("Part")
+		collider.Name = "PlanetCollider"
+		collider.Shape = Enum.PartType.Ball
+		collider.Size = Vector3.new(size, size, size)
+		collider.CFrame = p.CFrame
+		collider.Transparency = 1
+		collider.CanCollide = true      -- walk on this
+		collider.CanQuery = true        -- raycasts hit this
+		collider.CanTouch = true
+		collider.Parent = planetFolder
+
+		-- Make the visual mesh not collide; the collider handles it
+		p.CanCollide = false
+		p.CanQuery  = false
+
+		-- Weld collider to the visual planet so they move/spin together
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = collider
+		weld.Part1 = p
+		weld.Parent = collider
+
+		-- Anchor for now; we'll unanchor the whole assembly if it spins
+		p.Anchored = true
+		collider.Anchored = true
+
+		-- From here on, treat 'p' as the planet root (as before)
+		table.insert(placedPlanets, { pos = position, size = size, isSpin = willSpin, ref = p })
+
 		local assetCount = getSurfaceCount(size)
-		placeAssetsOnSphere(p, assetCount)
+		local emeralds = placeAssetsOnSphere(p, assetCount, emeraldFolder, surfaceAsset)
+
+		if willSpin then
+			setupSpinningSystem(p, emeralds, { anchors = anchorFolder }, rngGen)
+			p:SetAttribute("IsSpinning", true)
+		end
+
+		-- Generate geysers for this planet
+		generatePlanetGeysers(p, size, rngGen)
+
 	end
+
+	-- Generate Golden Rings
+	generateGoldenRings(planetFolder, rngGen)
 end
 
 return PlanetFieldGenerator

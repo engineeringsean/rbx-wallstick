@@ -1,5 +1,5 @@
 -- Swirl Script (LocalScript for StarterCharacterScripts)
--- Activated by pressing "Q" key
+-- Activated by pressing "E" key (now supports holding)
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -15,15 +15,53 @@ local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local DestructionHandler = require(ReplicatedStorage.SharedPackages.DestructionHandler)
 
 -- Configuration
-local SWIRL_ANIMATION_ID = "rbxassetid://122328402461733" -- Replace with your swirl animation ID
-local RAYCAST_COUNT = 12 -- Number of raycasts in the circle
-local RAYCAST_DISTANCE = 4 -- How far each raycast goes
-local COOLDOWN_TIME = 0.2 -- Seconds between uses
+local SWIRL_ANIMATION_ID = "rbxassetid://99813553277327"
+local RAYCAST_COUNT = 12
+local RAYCAST_DISTANCE = 4
+local COOLDOWN_TIME = 0.0
 
 local isOnCooldown = false
 local animationTrack = nil
+local isHoldingE = false
+local swirlCoroutine = nil
 
--- Collectible tracking is now handled by the shared DestructionHandler
+local function createTrailInHand(hand)
+	local attach0 = Instance.new("Attachment")
+	attach0.Name = "TrailAttachment0"
+	attach0.Position = Vector3.new(0, 0.5, 0)
+	attach0.Parent = hand
+
+	local attach1 = Instance.new("Attachment")
+	attach1.Name = "TrailAttachment1"
+	attach1.Position = Vector3.new(0, -0.5, 0)
+	attach1.Parent = hand
+
+	local trail = Instance.new("Trail")
+	trail.Name = "SpinTrail"
+	trail.Attachment0 = attach0
+	trail.Attachment1 = attach1
+	trail.Color = ColorSequence.new(Color3.fromRGB(0, 170, 255))
+	trail.WidthScale = NumberSequence.new(0.5)
+	trail.LightEmission = 1
+	trail.Lifetime = 0.4
+	trail.Enabled = false
+	trail.Parent = hand
+
+	return trail
+end
+
+local function setupTrail()
+	local rightHand = character:WaitForChild("RightHand", 3)
+	if not rightHand then return end
+
+	-- Check if trail already exists, if not create it
+	local trail = rightHand:FindFirstChild("SpinTrail")
+	if not trail then
+		trail = createTrailInHand(rightHand)
+	end
+
+	return trail
+end
 
 -- Load the swirl animation
 local function loadSwirlAnimation()
@@ -33,23 +71,23 @@ local function loadSwirlAnimation()
 	animationTrack = humanoid:LoadAnimation(animation)
 	animationTrack.Priority = Enum.AnimationPriority.Action
 	animationTrack.Looped = false
+
+	-- Set up trail when animation is loaded
+	setupTrail()
 end
 
 -- Perform circular raycasts around the player
 local function performCircularRaycasts()
 	local origin = humanoidRootPart.Position
 	local results = {}
-	
-	-- Local up vector (e.g., normal to surface)
+	local hitParts = {}
+
 	local upVector = humanoidRootPart.CFrame.UpVector
-	
-	-- Generate an orthonormal basis (right and forward vectors perpendicular to up)
 	local rightVector = humanoidRootPart.CFrame.RightVector
 	local forwardVector = humanoidRootPart.CFrame.LookVector
 
 	for i = 1, RAYCAST_COUNT do
 		local angle = (i - 1) * (2 * math.pi / RAYCAST_COUNT)
-		-- Rotate within the plane perpendicular to upVector
 		local direction = (rightVector * math.cos(angle) + forwardVector * math.sin(angle)).Unit
 
 		local raycastParams = RaycastParams.new()
@@ -58,7 +96,8 @@ local function performCircularRaycasts()
 
 		local result = workspace:Raycast(origin, direction * RAYCAST_DISTANCE, raycastParams)
 
-		if result then
+		if result and result.Instance and not hitParts[result.Instance] then
+			hitParts[result.Instance] = true
 			table.insert(results, result)
 		end
 	end
@@ -72,7 +111,6 @@ local function destroyHitObjects(results)
 		local hitPart = result.Instance
 
 		if hitPart and hitPart:IsA("BasePart") then
-			-- Use the shared destruction handler
 			DestructionHandler.handleDestruction(hitPart, player)
 		end
 	end
@@ -106,44 +144,92 @@ local function isFakeInFreefall(): boolean
 	return fakeHumanoid:GetState() == Enum.HumanoidStateType.Freefall
 end
 
--- Main swirl function
-local function performSwirl()
-	if isOnCooldown then
-		return
-	end
-
-	isOnCooldown = true
-	
+-- Single swirl execution
+local function performSingleSwirl()
 	local fakeHumanoid, fakeRoot = getFakeHumanoidAndRoot()
-	if not (fakeHumanoid and fakeRoot) then return end
+	if not (fakeHumanoid and fakeRoot) then
+		return false
+	end
 
 	-- Play animation
 	if animationTrack then
 		animationTrack:Play()
+
+		-- Enable trail after a short delay
+		task.delay(0.1, function()
+			local rightHand = character:FindFirstChild("RightHand")
+			if rightHand then
+				local trail = rightHand:FindFirstChild("SpinTrail")
+				if trail and not trail.Enabled then
+					trail.Enabled = true
+
+					task.delay(0.3, function()
+						if trail then
+							trail.Enabled = false
+						end
+					end)
+				end
+			end
+		end)
 	end
 
 	-- Wait a bit for animation to start
-	wait(0.1)
-	
+	--wait(0.1)
+
 	if isFakeInFreefall() then
 		local up = getUpVector()
 		if up and fakeRoot then
-			fakeRoot.AssemblyLinearVelocity = up * 500
+			fakeRoot.AssemblyLinearVelocity = up * 75
 		end
 	end
 
-	-- Perform raycasts and destroy objects
-	local results = performCircularRaycasts()
-	destroyHitObjects(results)
+	local duration = 0.5
+	local elapsed = 0
 
-	-- Wait for animation to finish
-	if animationTrack then
-		animationTrack.Stopped:Wait()
+	while elapsed < duration do
+		local dt = RunService.Heartbeat:Wait()
+		elapsed += dt
+
+		-- Perform raycasts and destroy objects
+		local results = performCircularRaycasts()
+		destroyHitObjects(results)
 	end
 
-	-- Reset cooldown
-	wait(COOLDOWN_TIME - 0.1)
-	isOnCooldown = false
+	return true
+end
+
+-- Continuous swirl loop while holding E
+local function startContinuousSwirl()
+	swirlCoroutine = coroutine.create(function()
+		while isHoldingE do
+			if not isOnCooldown then
+				isOnCooldown = true
+
+				local success = performSingleSwirl()
+
+				-- Wait for cooldown
+				wait(COOLDOWN_TIME)
+				isOnCooldown = false
+
+				-- If the swirl failed (fake character not found), break the loop
+				if not success then
+					break
+				end
+			else
+				wait(0.1)
+			end
+		end
+	end)
+
+	coroutine.resume(swirlCoroutine)
+end
+
+-- Stop continuous swirl
+local function stopContinuousSwirl()
+	isHoldingE = false
+	if swirlCoroutine then
+		swirlCoroutine = nil
+	end
 end
 
 -- Input handling
@@ -151,7 +237,16 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 
 	if input.KeyCode == Enum.KeyCode.E then
-		performSwirl()
+		if not isHoldingE then
+			isHoldingE = true
+			startContinuousSwirl()
+		end
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.E then
+		stopContinuousSwirl()
 	end
 end)
 
@@ -161,9 +256,12 @@ player.CharacterAdded:Connect(function(newCharacter)
 	humanoid = character:WaitForChild("Humanoid")
 	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
+	-- Stop any ongoing swirl
+	stopContinuousSwirl()
+
 	-- Reload animation for new character
 	loadSwirlAnimation()
 end)
 
 -- Initial setup
-loadSwirlAnimation() 
+loadSwirlAnimation()

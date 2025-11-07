@@ -79,7 +79,7 @@ function WallstickClass.new(options: Options): Wallstick
 	self.part = workspace.Terrain
 	self.normal = Vector3.yAxis
 
-	self.cameraUpSpring = RotationSpring.new(1, 3, CFrame.identity, CFrame.identity)
+	self.cameraUpSpring = RotationSpring.new(1, 1, CFrame.identity, CFrame.identity)
 
 	self.geometry = Instance.new("Folder")
 	self.geometry.Name = "Geometry"
@@ -158,7 +158,7 @@ end
 
 local function fromToRotationInterp(from: Vector3, to: Vector3, backupUnitAxis: Vector3?)
 	-- Default alpha to 1 if not provided (immediate rotation)
-	local alpha = 0.000001
+	local alpha = 0.00000000000001
 
 	-- Normalize the input vectors
 	from = from.Unit
@@ -349,7 +349,7 @@ function WallstickClass.set(self: Wallstick, part: BasePart, normal: Vector3, te
 
 	local originCF = self:_getOriginCFrame()
 	local targetCF = originCF * self.part.CFrame:ToObjectSpace(teleportCF or self.real.rootPart.CFrame)
-	local sphericalArc = fromToRotation(targetCF.YVector, Vector3.yAxis, targetCF.XVector)
+	local sphericalArc = fromToRotationInterp(targetCF.YVector, Vector3.yAxis, targetCF.XVector)
 	local resultCF = (sphericalArc * targetCF.Rotation) + targetCF.Position
 
 	local fakeRoot = self.fake.rootPart
