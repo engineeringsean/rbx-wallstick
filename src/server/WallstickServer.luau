@@ -34,7 +34,7 @@ local function setupCollisions()
 
 	-- Allow WallstickCollision to collide with itself
 	PhysicsService:CollisionGroupSetCollidable("WallstickCollision", "WallstickCollision", true)
-
+	
 end
 
 --
